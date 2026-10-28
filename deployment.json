@@ -1,0 +1,27 @@
+{
+  "commit": "8be4c6c9fbcae993bbe4caf8edc93a9c84f5ec24",
+  "build": "failure",
+  "deploy": "skipped",
+  "siteUrl": "",
+  "publicVerified": false,
+  "runUrl": "https://github.com/MohammedThe1/cfa-lvl1/actions/runs/40677294757",
+  "jobs": [
+    {
+      "name": "build",
+      "conclusion": "failure",
+      "failedSteps": [
+        "Run actions/configure-pages@v5"
+      ]
+    },
+    {
+      "name": "report",
+      "conclusion": null,
+      "failedSteps": []
+    },
+    {
+      "name": "deploy",
+      "conclusion": "skipped",
+      "failedSteps": []
+    }
+  ]
+}
