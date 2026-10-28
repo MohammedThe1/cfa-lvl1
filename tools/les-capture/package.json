@@ -1,0 +1,1 @@
+{"name":"les-readonly-capture","private":true,"type":"module","scripts":{"capture":"node capture.mjs"},"dependencies":{"playwright":"1.62.1"},"engines":{"node":">=22"}}
