@@ -1,16 +1,22 @@
 #!/usr/bin/env python3
 """Record deployment evidence so a Git-only publishing workspace can read it."""
-import hashlib,json,os,sys,time,urllib.request
+import hashlib,json,os,re,sys,time,urllib.request,urllib.error,urllib.parse
 from pathlib import Path
 
 repo=os.environ['GITHUB_REPOSITORY']
 report={'commit':os.environ['GITHUB_SHA'],'build':os.environ.get('BUILD_RESULT'),
         'deploy':os.environ.get('DEPLOY_RESULT'),'siteUrl':os.environ.get('SITE_URL'),
         'publicVerified':False,'runUrl':f"https://github.com/{repo}/actions/runs/{os.environ['GITHUB_RUN_ID']}"}
+class SafeRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self,req,fp,code,msg,headers,newurl):
+        redirected=super().redirect_request(req,fp,code,msg,headers,newurl)
+        if redirected and urllib.parse.urlsplit(req.full_url).netloc!=urllib.parse.urlsplit(newurl).netloc:
+            redirected.remove_header('Authorization')
+        return redirected
 def get(url,token=None):
     headers={'User-Agent':'Madar-publication-check'}
     if token:headers['Authorization']='Bearer '+token
-    with urllib.request.urlopen(urllib.request.Request(url,headers=headers),timeout=25) as response:
+    with urllib.request.build_opener(SafeRedirect()).open(urllib.request.Request(url,headers=headers),timeout=25) as response:
         return response.read()
 if report['deploy']=='success' and report['siteUrl']:
     base=report['siteUrl'].rstrip('/')+'/'
@@ -32,7 +38,17 @@ if report['deploy']=='success' and report['siteUrl']:
             if attempt<2:time.sleep(10)
 try:
     jobs=json.loads(get(f"https://api.github.com/repos/{repo}/actions/runs/{os.environ['GITHUB_RUN_ID']}/jobs",os.environ.get('GH_TOKEN')))
-    report['jobs']=[{'name':j['name'],'conclusion':j['conclusion'],'failedSteps':[s['name'] for s in j.get('steps',[]) if s.get('conclusion')=='failure']} for j in jobs.get('jobs',[])]
+    report['jobs']=[]
+    for job in jobs.get('jobs',[]):
+        item={'name':job['name'],'conclusion':job['conclusion'],'failedSteps':[s['name'] for s in job.get('steps',[]) if s.get('conclusion')=='failure']}
+        if item['failedSteps']:
+            try:
+                log=get(f"https://api.github.com/repos/{repo}/actions/jobs/{job['id']}/logs",os.environ.get('GH_TOKEN')).decode(errors='replace')
+                item['errors']=[re.sub(r'\x1b\[[0-9;]*m','',line)[:600] for line in log.splitlines() if '##[error]' in line or 'HttpError:' in line][-12:]
+            except Exception as error:item['logsError']=str(error)
+        report['jobs'].append(item)
+    metadata=json.loads(get(f'https://api.github.com/repos/{repo}',os.environ.get('GH_TOKEN')))
+    report['repository']={k:metadata.get(k) for k in ['private','visibility','has_pages']}
 except Exception as error:
     report['jobDetailsError']=str(error)
 Path(sys.argv[1]).write_text(json.dumps(report,indent=2)+'\n')
