@@ -3,9 +3,7 @@ dist/
 private-sources/
 test-results/
 *.log
-public/question-bank.json
 releases/
-public/question-assets/
 __pycache__/
 *.py[cod]
 .env

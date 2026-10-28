@@ -1,0 +1,76 @@
+name: Publish Madar
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build -- --base=./
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish site
+        id: deployment
+        uses: actions/deploy-pages@v4
+  report:
+    if: always()
+    needs: [build, deploy]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+      pages: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check public site and write deployment result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          SITE_URL: ${{ needs.deploy.outputs.page_url }}
+        run: python3 scripts/report-pages-deployment.py /tmp/madar-deployment.json
+      - name: Save result for the publishing workspace
+        run: |
+          if git ls-remote --exit-code --heads origin pages-status >/dev/null 2>&1; then
+            git fetch origin pages-status
+            git switch -c pages-status FETCH_HEAD
+          else
+            git switch --orphan pages-status
+          fi
+          cp /tmp/madar-deployment.json deployment.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add deployment.json
+          git diff --cached --quiet || git commit -m 'Record Pages deployment result'
+          git push origin HEAD:pages-status
