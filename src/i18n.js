@@ -1,5 +1,8 @@
 // Interface-only translation. Original questions, answers and provenance stay untouched.
 const arabic = {
+  "Your questions could not load": "تعذر تحميل الأسئلة",
+  "Your saved progress has not been replaced. Retry loading the question library.": "لم يُستبدل تقدمك المحفوظ. أعد محاولة تحميل بنك الأسئلة.",
+  "Retry loading questions": "إعادة تحميل الأسئلة",
   "Unable to read stored data. Your original data is preserved. Export the raw file before continuing:":
     "تعذر قراءة بياناتك. لم نحذفها أو نستبدلها. صدّر الملف الخام قبل المتابعة:",
   "Browser storage is unavailable. Enable site storage before studying.":

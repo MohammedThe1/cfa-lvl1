@@ -26,6 +26,7 @@ import {
 const KEY = "madar-study-v1";
 let state = fresh(),
   storageError = "",
+  startupError = "",
   notice = "";
 let bundledBank={version:1,questions:[],reviewQueue:[],coverage:[]};
 let documentViews={};let libraryPage=0;let libraryTopic='all';let libraryStatus='all';
@@ -276,6 +277,11 @@ function sources() {
   }</div><div class="panel"><h2>Thmanyah font</h2><p>Load your licensed Thmanyah font file (WOFF2, WOFF or TTF). It stays in this browser. Until then, the interface uses the system font.</p>${btn("Load Thmanyah font", "font", "secondary")}</div><div class="panel"><h2>Protect your progress</h2><p>Stored in this browser only. Clearing site data removes progress. Export regular backups to move between devices.</p>${btn("Export questions and progress", "export", "secondary")}<label class="file-label">Restore a backup<input id="backup-file" type="file" accept=".json,application/json"></label><p class="footnote">Restore replaces this browser's study data after confirmation. Export your current backup first.</p></div>`;
 }
 function render() {
+  if (startupError) {
+    document.querySelector('#app').innerHTML=`<main class="panel" style="max-width:680px;margin:60px auto;padding:32px"><h1>Your questions could not load</h1><p>Your saved progress has not been replaced. Retry loading the question library.</p><p class="footnote" role="alert">${esc(startupError)}</p><div class="question-actions">${btn('Retry loading questions','reload-library')}${btn('Export raw data','raw','secondary')}${btn(getLanguage()==='en'?'العربية':'English','language','secondary language-toggle')}</div></main>`;
+    applyLanguage(document.querySelector('#app'));
+    return;
+  }
   if (!years().includes(year)) year = years()[0] || "";
   const section = route.startsWith("topic:") ? "study" : route;
   const tabs = [
@@ -311,6 +317,10 @@ document.addEventListener("click", (e) => {
   if (!b) return;
   try {
     const a = b.dataset.action;
+    if (a === 'reload-library') {
+      initialize();
+      return;
+    }
     if (a === "language") {
       toggleLanguage();
       render();
@@ -521,14 +531,19 @@ function checkSourceReadiness(){const button=document.querySelector('[data-actio
 document.addEventListener('load',e=>{if(e.target.matches?.('.required-source-image')){const warning=(e.target.closest('.source-document')||e.target.closest('.source-figure'))?.querySelector('.source-error');if(warning)warning.textContent='';checkSourceReadiness();}},true);
 document.addEventListener('error',e=>{if(e.target.matches?.('.source-image')){const warning=(e.target.closest('.source-document')||e.target.closest('.source-figure'))?.querySelector('.source-error');if(warning)warning.textContent='The source page could not load. Keep the question-assets folder beside Madar.html. This question cannot be submitted without its source.';checkSourceReadiness();}},true);
 async function initialize(){
+ startupError='';storageError='';
  document.querySelector('#app').innerHTML='<p style="padding:40px">Loading your source library…</p>';
  try{
   const embedded=document.getElementById('bundled-questions');
   if(embedded)bundledBank=JSON.parse(embedded.textContent);
-  else {const response=await fetch('/question-bank.json');if(response.ok)bundledBank=await response.json();}
+  else {
+    const response=await fetch(new URL('question-bank.json',document.baseURI),{cache:'no-cache'});
+    if(!response.ok)throw Error('Question library request failed (HTTP '+response.status+').');
+    bundledBank=await response.json();
+  }
   const raw=localStorage.getItem(KEY);state=hydrate(raw?JSON.parse(raw):null,bundledBank);
   localStorage.setItem(KEY,JSON.stringify(personalData(state,bundledBank)));
- }catch(error){storageError='Unable to load your source library. Original stored data was preserved: '+error.message;}
+ }catch(error){startupError=error.message;storageError='Unable to load your source library. Original stored data was preserved: '+error.message;}
  render();
 }
 async function awaitFont() {
