@@ -1,36 +1,33 @@
 {
   "commit": "eaf9ce88c163028834b01a0b4bfe54c5c0aeb87f",
-  "build": "failure",
-  "deploy": "skipped",
-  "siteUrl": "",
-  "publicVerified": false,
+  "build": "success",
+  "deploy": "success",
+  "siteUrl": "https://mohammedthe1.github.io/cfa-lvl1/",
+  "publicVerified": true,
   "runUrl": "https://github.com/MohammedThe1/cfa-lvl1/actions/runs/40677537212",
+  "readyQuestions": 1420,
+  "bankSha256": "ca6396e0761b4d43a43b1f2f36efc210409e23a3ed7f8447487119ff49576f8e",
+  "verifiedImage": "question-assets/a26bb009cb63-p61.webp",
   "jobs": [
     {
       "name": "build",
-      "conclusion": "failure",
-      "failedSteps": [
-        "Run actions/configure-pages@v5"
-      ],
-      "errors": [
-        "2026-10-28T11:08:05.4767282Z ##[error]Create Pages site failed. Error: Resource not accessible by integration - https://docs.github.com/rest/pages/pages#create-a-apiname-pages-site",
-        "2026-10-28T11:08:05.4769207Z ##[error]HttpError: Resource not accessible by integration - https://docs.github.com/rest/pages/pages#create-a-apiname-pages-site"
-      ]
+      "conclusion": "success",
+      "failedSteps": []
+    },
+    {
+      "name": "deploy",
+      "conclusion": "success",
+      "failedSteps": []
     },
     {
       "name": "report",
       "conclusion": null,
       "failedSteps": []
-    },
-    {
-      "name": "deploy",
-      "conclusion": "skipped",
-      "failedSteps": []
     }
   ],
   "repository": {
-    "private": true,
-    "visibility": "private",
-    "has_pages": false
+    "private": false,
+    "visibility": "public",
+    "has_pages": true
   }
 }
