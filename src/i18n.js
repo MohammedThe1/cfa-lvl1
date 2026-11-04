@@ -287,3 +287,4 @@ export function applyLanguage(root) {
     if (!el.closest("[data-original]"))
       el.setAttribute("aria-label", translate(el.getAttribute("aria-label")));
 }
+

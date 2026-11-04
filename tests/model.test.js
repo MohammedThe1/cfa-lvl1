@@ -15,6 +15,7 @@ import {
   result,
   restoreBackup,
   eligible,
+  setReflection,
 } from "../src/model.js";
 import { fixture, loaded } from "./fixtures.js";
 test("shuffled options score by stable ID; fixed options keep original order", () => {
@@ -60,8 +61,8 @@ test("reload preserves selection, order, phase, session position and attempt IDs
   assert.equal(s.sessions[0].entries[0].phase, "reviewed");
   assert.equal(s.attempts.length, 1);
 });
-test("wrong lesson question returns once; two eligible correct reviews a day apart clear weakness", () => {
-  const s = loaded();
+test("same-session and early retries do not advance retrieval; due reviews increase intervals and continue maintenance", () => {
+  let s = loaded();
   const a = startSession(s, ["record-1"], "lesson", "__LABEL__", 100);
   select(s, "option-x", 101);
   submit(s, 102);
@@ -70,17 +71,25 @@ test("wrong lesson question returns once; two eligible correct reviews a day apa
   select(s, "option-y", 104);
   submit(s, 105);
   assert.equal(s.reviews["record-1"].weak, true);
-  assert.equal(s.reviews["record-1"].streak, 1);
+  assert.equal(s.reviews["record-1"].streak, 0);
+  assert.equal(s.reviews["record-1"].due, 102 + 86400000);
+  assert.equal(s.attempts[1].delayed, false);
   advance(s, 106);
   startSession(s, ["record-1"], "weak", "__LABEL__", 200);
   select(s, "option-y", 201);
   submit(s, 202);
-  assert.equal(s.reviews["record-1"].streak, 1);
+  assert.equal(s.reviews["record-1"].streak, 0);
   advance(s, 203);
-  startSession(s, ["record-1"], "weak", "__LABEL__", 86400106);
-  select(s, "option-y", 86400107);
-  submit(s, 86400108);
-  assert.equal(s.reviews["record-1"].weak, false);
+  s = restoreBackup(JSON.parse(JSON.stringify(s)));
+  const due = s.reviews["record-1"].due;
+  startSession(s, ["record-1"], "weak", "__LABEL__", due);
+  select(s, "option-y", due + 1);
+  submit(s, due + 2);
+  assert.equal(s.attempts.at(-1).delayed, true);
+  assert.equal(s.reviews["record-1"].due, due + 2 + 3 * 86400000);
+  assert.equal(s.reviews["record-1"].delayedCount, 1);
+  assert.equal(s.reviews["record-1"].delayedCorrect, 1);
+  assert.equal(s.reviews["record-1"].weak, true);
 });
 test("repeated wrong attempt is bounded, bookmarks persist and repeat stats stay separate", () => {
   let s = loaded();
@@ -168,9 +177,64 @@ test("timed tests conceal recorded attempts until finish; actual deadline surviv
     total: 2,
     unanswered: 1,
   });
+  assert.equal(s.reviews['record-2'].reason, 'skipped');
+  assert.equal(s.reviews['record-2'].due, 61000 + 86400000);
   finish(s, 62000);
   assert.equal(s.attempts.length, 1);
   assert.equal(test.deadline, 61000);
+});
+
+test('confidence, correctness, and delayed retention remain separate', () => {
+  const s = loaded();
+  startSession(s, ['record-1'], 'practice', 'practice', 100);
+  setReflection(s, {confidence: 'guessed'});
+  setReflection(s, {note: 'Check the definition'});
+  setReflection(s, {errorLabel: 'concept'});
+  select(s, 'option-y', 101); submit(s, 102); advance(s, 103);
+  assert.equal(s.attempts[0].correct, true);
+  assert.equal(s.attempts[0].confidence, 'guessed');
+  assert.equal(s.attempts[0].note, 'Check the definition');
+  assert.equal(s.attempts[0].errorLabel, 'concept');
+  assert.equal(s.reviews['record-1'].reason, 'guessed');
+  const due = s.reviews['record-1'].due;
+  startSession(s, ['record-1'], 'weak', 'review', due);
+  setReflection(s, {confidence: 'uncertain'});
+  select(s, 'option-y', due + 1); submit(s, due + 2);
+  assert.equal(s.attempts[1].delayed, true);
+  assert.equal(s.reviews['record-1'].delayedCorrect, 1);
+  assert.equal(s.reviews['record-1'].reason, 'uncertain');
+  assert.equal(s.reviews['record-1'].due, due + 2 + 86400000);
+});
+
+test('review due instants survive reload and a time-zone change', () => {
+  const before = process.env.TZ;
+  try {
+    process.env.TZ = 'Asia/Riyadh';
+    let s = loaded();
+    const when = Date.parse('2026-12-31T23:30:00Z');
+    startSession(s, ['record-1'], 'practice', 'practice', when);
+    select(s, 'option-x', when + 1); submit(s, when + 2);
+    const due = s.reviews['record-1'].due;
+    s = restoreBackup(JSON.parse(JSON.stringify(s)));
+    process.env.TZ = 'America/Los_Angeles';
+    assert.equal(s.reviews['record-1'].due, due);
+    assert.equal(new Date(due).toISOString(), new Date(when + 2 + 86400000).toISOString());
+  } finally {
+    if (before === undefined) delete process.env.TZ; else process.env.TZ = before;
+  }
+});
+
+test('a skipped due item is queued again without fabricating retention evidence', () => {
+  const s = loaded();
+  startSession(s, ['record-1'], 'practice', 'practice', 100);
+  select(s, 'option-y', 101); submit(s, 102); advance(s, 103);
+  const due = s.reviews['record-1'].due;
+  startSession(s, ['record-1'], 'timed', 'test', due);
+  finish(s, due + 1);
+  assert.equal(s.attempts.length, 1);
+  assert.equal(s.reviews['record-1'].reason, 'skipped');
+  assert.equal(s.reviews['record-1'].delayedCount, 0);
+  assert.equal(s.reviews['record-1'].due, due + 1 + 86400000);
 });
 test("unvalidated and mixed-year content cannot enter scored practice", () => {
   const q = fixture();
@@ -198,3 +262,4 @@ test('malformed nested records return understandable validation errors', () => {
     assert.ok(validateBank({version:1,questions:[q]}).length);
   }
 });
+

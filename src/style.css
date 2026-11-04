@@ -1,10 +1,27 @@
+/* Supplied Thmanyah WOFF2 assets; weight classes verified against the matching OTF metadata. */
+@font-face { font-family: 'Thmanyah Sans'; src: url('./fonts/thmanyahsans-Light.woff2') format('woff2'); font-style: normal; font-weight: 300; font-display: swap; }
+@font-face { font-family: 'Thmanyah Sans'; src: url('./fonts/thmanyahsans-Regular.woff2') format('woff2'); font-style: normal; font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Thmanyah Sans'; src: url('./fonts/thmanyahsans-Medium.woff2') format('woff2'); font-style: normal; font-weight: 500; font-display: swap; }
+@font-face { font-family: 'Thmanyah Sans'; src: url('./fonts/thmanyahsans-Bold.woff2') format('woff2'); font-style: normal; font-weight: 700; font-display: swap; }
+@font-face { font-family: 'Thmanyah Sans'; src: url('./fonts/thmanyahsans-Black.woff2') format('woff2'); font-style: normal; font-weight: 900; font-display: swap; }
+@font-face { font-family: 'Thmanyah Serif Display'; src: url('./fonts/thmanyahserifdisplay-Light.woff2') format('woff2'); font-style: normal; font-weight: 300; font-display: swap; }
+@font-face { font-family: 'Thmanyah Serif Display'; src: url('./fonts/thmanyahserifdisplay-Regular.woff2') format('woff2'); font-style: normal; font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Thmanyah Serif Display'; src: url('./fonts/thmanyahserifdisplay-Medium.woff2') format('woff2'); font-style: normal; font-weight: 500; font-display: swap; }
+@font-face { font-family: 'Thmanyah Serif Display'; src: url('./fonts/thmanyahserifdisplay-Bold.woff2') format('woff2'); font-style: normal; font-weight: 700; font-display: swap; }
+@font-face { font-family: 'Thmanyah Serif Display'; src: url('./fonts/thmanyahserifdisplay-Black.woff2') format('woff2'); font-style: normal; font-weight: 900; font-display: swap; }
+@font-face { font-family: 'Thmanyah Serif Text'; src: url('./fonts/thmanyahseriftext-Light.woff2') format('woff2'); font-style: normal; font-weight: 300; font-display: swap; }
+@font-face { font-family: 'Thmanyah Serif Text'; src: url('./fonts/thmanyahseriftext-Regular.woff2') format('woff2'); font-style: normal; font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Thmanyah Serif Text'; src: url('./fonts/thmanyahseriftext-Medium.woff2') format('woff2'); font-style: normal; font-weight: 500; font-display: swap; }
+@font-face { font-family: 'Thmanyah Serif Text'; src: url('./fonts/thmanyahseriftext-Bold.woff2') format('woff2'); font-style: normal; font-weight: 700; font-display: swap; }
+@font-face { font-family: 'Thmanyah Serif Text'; src: url('./fonts/thmanyahseriftext-Black.woff2') format('woff2'); font-style: normal; font-weight: 900; font-display: swap; }
+
 :root {
-  font-family: Tahoma, Arial, sans-serif;
+  font-family: 'Thmanyah Sans', Tahoma, Arial, sans-serif;
   color: #203c35;
   background: #f6f7f2;
   font-synthesis: none;
   --green: #184c40;
-  --muted: #77837a;
+  --muted: #596960;
   --line: #e0e5dc;
 }
 * {
@@ -246,12 +263,12 @@ small {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  font-family: Georgia, serif;
+  font-family: 'Thmanyah Serif Display', Georgia, serif;
   font-size: 82px;
   color: #c9d8ae;
 }
 .orb small {
-  font: 9px Arial;
+  font: 9px 'Thmanyah Sans', Arial, sans-serif;
   letter-spacing: 4px;
 }
 .button,
@@ -375,7 +392,7 @@ small {
   color: var(--muted);
 }
 .topic .topic-number {
-  font: 18px Georgia;
+  font: 18px 'Thmanyah Serif Display', Georgia, serif;
   color: #637f64;
   background: #f1f4eb;
   width: 40px;
@@ -1056,7 +1073,7 @@ html[dir="ltr"] .topic h3 {
   text-align: left;
 }
 html.personal-font {
-  font-family: Thmanyah, Arial, sans-serif;
+  font-family: 'Thmanyah Sans', Tahoma, Arial, sans-serif;
 }
 .language-toggle {
   white-space: nowrap;
@@ -1127,3 +1144,43 @@ html.personal-font {
 .library-record>details{margin:18px 0}
 .library-record summary{min-height:44px}
 .source-document .image-pan img { width: 1100px; }
+
+
+/* Reading surfaces use the text face; questions and choices retain the sans face. */
+h1, .result-card strong { font-family: 'Thmanyah Serif Display', Georgia, serif; }
+.material, .explanation, .review-item .explanation { font-family: 'Thmanyah Serif Text', Georgia, serif; font-size: 16px; }
+.question-text, .option, input, select, textarea, button { font-family: 'Thmanyah Sans', Tahoma, Arial, sans-serif; }
+textarea { font: inherit; max-width: 100%; }
+textarea:focus-visible { outline: 3px solid #b28a47; outline-offset: 4px; }
+.question, .panel, .lesson, .review-item { min-width: 0; }
+.question-text h2, .material, .explanation, .option { overflow-wrap: anywhere; }
+.option { align-items: flex-start; }
+.option input { margin-top: 0.3em; }
+@media (max-width: 650px) {
+  nav a { font-size: 11px; min-height: 56px; }
+  .question-text h2 { font-size: 18px; line-height: 1.7; }
+  .option { font-size: 16px; line-height: 1.6; min-height: 48px; }
+  .material, .explanation, .explanation div { font-size: 16px; line-height: 1.75; }
+  .question-actions { flex-wrap: wrap; }
+  .question-actions > * { min-width: 125px; }
+}
+@media (max-width: 650px) {
+  header, header select { font-size: 12px; }
+  .stats small, .stats article > span { font-size: 11px; }
+  .topic span { font-size: 12px; }
+  .topic h3 { font-size: 15px; }
+  .footnote { font-size: 12px; }
+}
+/* Four measures should remain balanced as the viewport narrows. */
+.stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 850px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+textarea {
+  width: 100%;
+  min-height: 5rem;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fafbf8;
+  color: var(--green);
+  resize: vertical;
+}

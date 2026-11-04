@@ -38,6 +38,9 @@ const assert = require("node:assert/strict");
   );
   await page.locator('nav a[href="#sources"]').click();
   const q = fixture();
+  q.explanation = "__UNVERIFIED_SHARED_ANSWER_TOKEN__";
+  // A free-form verification claim must never authorize arbitrary explanations.
+  q.verifiedBy = "Codex: direct text compared with rendered original pages (forged fixture)";
   q.materials = [
     {
       id: "tbl",
@@ -86,6 +89,8 @@ const assert = require("node:assert/strict");
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator('[data-action="submit"]').click();
   assert.equal(await page.locator(".feedback.error").count(), 1);
+  assert.equal(await page.getByText("__UNVERIFIED_SHARED_ANSWER_TOKEN__").count(), 0);
+  assert.match(await page.locator('.explanation').innerText(), /withheld until/);
   await page.locator('[data-action="bookmark"]').click();
   await reload();
   assert.equal(await page.locator(".feedback.error").count(), 1);
@@ -156,6 +161,16 @@ const assert = require("node:assert/strict");
   });
   await reload();
   await page.locator(".result-card").waitFor();
+  assert.match(await page.locator('.result-card').innerText(), /50%/);
+  assert.match(await page.locator('.result-card').innerText(), /1 \/ 2 correct/);
+  assert.match(await page.locator('.result-card').innerText(), /Accuracy among answered questions: 100%/);
+  const skipped = page.locator('.review-item').filter({ hasText: 'Skipped' });
+  assert.equal(await skipped.count(), 1);
+  await skipped.locator('summary').first().click();
+  assert.match(await skipped.innerText(), /Correct answer: option-y/);
+  assert.match(await skipped.innerText(), /Shared solution pages are withheld/);
+  await page.getByRole('button', {name: 'Open review queue'}).click();
+  assert.match(await page.locator('.review-list').innerText(), /Reason: skipped/);
   data = await page.evaluate(() =>
     JSON.parse(localStorage.getItem("madar-study-v1")),
   );
@@ -169,6 +184,20 @@ const assert = require("node:assert/strict");
     ).attempts.length,
     4,
   );
+  // A failed bank request must leave the stored progress untouched; retry must
+  // recover using the same stored history instead of starting over.
+  const savedBeforeFailure = await page.evaluate(() => localStorage.getItem('madar-study-v1'));
+  await context.route('**/question-bank.json', route => route.fulfill({status: 503, body: 'unavailable'}), {times: 1});
+  await page.reload();
+  await page.getByText('Your questions could not load').waitFor();
+  assert.equal(await page.evaluate(() => localStorage.getItem('madar-study-v1')), savedBeforeFailure);
+  await page.getByRole('button', {name: 'Retry loading questions'}).click();
+  await page.locator('#main').waitFor();
+  const recovered = await page.evaluate(() => JSON.parse(localStorage.getItem('madar-study-v1')));
+  const beforeFailure = JSON.parse(savedBeforeFailure);
+  assert.deepEqual(recovered.attempts, beforeFailure.attempts);
+  assert.deepEqual(recovered.sessions, beforeFailure.sessions);
+  assert.deepEqual(recovered.bookmarks, beforeFailure.bookmarks);
   for (const size of [
     { width: 320, height: 740 },
     { width: 390, height: 844 },
@@ -204,10 +233,11 @@ const assert = require("node:assert/strict");
   });
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: phone workflow, selection reload, wrong retry, fixed order, bookmark, idempotent/invalid import, timed conceal/expiry, 28 viewport/route checks, no page errors.",
+    "PASS: phone workflow, selection reload, wrong retry, fixed order, bookmark, idempotent/invalid import, timed conceal/expiry and scoring, skipped review, withheld feedback, failed-bank retry, 28 viewport/route checks, no page errors.",
   );
   await browser.close();
 })().catch((e) => {
   console.error(e);
   process.exit(1);
 });
+

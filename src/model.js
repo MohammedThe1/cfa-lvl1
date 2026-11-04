@@ -12,7 +12,7 @@ export const TOPICS = [
   "Portfolio Management",
 ];
 export const fresh = () => ({
-  version: 1,
+  version: 2,
   questions: [],
   attempts: [],
   bookmarks: [],
@@ -281,11 +281,49 @@ export function select(state, option, now = Date.now()) {
   e.selected = option;
   e.phase = "selected";
 }
+// Fixed elapsed-time intervals avoid changing a due instant when the learner
+// travels between time zones. Reviews continue at the last interval.
+const REVIEW_DAYS = [1, 3, 7, 14, 30, 90, 180];
+const DAY_MS = 86400000;
+function scheduleReview(state, qid, outcome, sessionId, now, answerCorrect = false) {
+  const previous = state.reviews[qid];
+  // A retry in the same session, or before the due time, is practice rather
+  // than evidence of delayed retention and must not advance the schedule.
+  if (previous?.lastSessionId === sessionId) return;
+  const delayed = !!previous?.lastSessionId && now >= previous.due;
+  let stage = Number.isInteger(previous?.stage) ? previous.stage : 0;
+  if (outcome === 'correct' && delayed) stage = Math.min(stage + 1, REVIEW_DAYS.length - 1);
+  if (outcome !== 'correct') stage = 0;
+  if (!previous || !previous.lastSessionId || delayed || outcome !== 'correct') {
+    state.reviews[qid] = {
+      ...previous, weak: true, streak: outcome === 'correct' && delayed ? (previous.streak || 0) + 1 : 0,
+      due: now + REVIEW_DAYS[stage] * DAY_MS, stage, reason: outcome,
+      lastSessionId: sessionId, lastReviewedAt: now,
+      delayedCount: (previous?.delayedCount || 0) + (delayed && outcome !== 'skipped' ? 1 : 0),
+      delayedCorrect: (previous?.delayedCorrect || 0) + (delayed && answerCorrect ? 1 : 0),
+    };
+  }
+}
+// Optional learner annotations are stored with the session entry and attempt.
+export function setReflection(state, changes = {}, entryIndex = null) {
+  const s = activeSession(state);
+  const e = s && (entryIndex === null ? (!s.finished && s.entries[s.index]) : s.entries[entryIndex]);
+  if (!e) return;
+  const {confidence = null, note = '', errorLabel = ''} = {...e.reflection, ...changes};
+  if (confidence !== null && !['sure', 'uncertain', 'guessed'].includes(confidence)) throw Error('Invalid confidence.');
+  if (typeof note !== 'string' || note.length > 500 || typeof errorLabel !== 'string' || errorLabel.length > 80) throw Error('Reflection is too long.');
+  if ((e.attemptId || s.finished) && confidence !== (e.reflection?.confidence ?? null)) throw Error('Set confidence before submitting your answer.');
+  e.reflection = {confidence, note, errorLabel};
+  const attempt = state.attempts.find(a => a.id === e.attemptId);
+  if (attempt) Object.assign(attempt, e.reflection);
+}
 function record(state, s, e, index, now) {
   if (e.attemptId || !e.selected) return;
   const q = state.questions.find((q) => q.id === e.questionId);
   const id = `${s.id}:${index}`;
   const correct = e.selected === q.correctOptionId;
+  const previousReview = state.reviews[q.id];
+  const delayed = !!previousReview?.lastSessionId && previousReview.lastSessionId !== s.id && now >= previousReview.due;
   if (!state.attempts.some((a) => a.id === id))
     state.attempts.push({
       id,
@@ -295,16 +333,13 @@ function record(state, s, e, index, now) {
       at: now,
       sessionId: s.id,
       mode: s.mode,
+      delayed,
+      ...(e.reflection || {}),
     });
   e.attemptId = id;
   e.phase = "submitted";
-  const r = state.reviews[q.id];
-  if (!correct) state.reviews[q.id] = { streak: 0, due: now, weak: true };
-  else if (r?.weak && now >= r.due) {
-    r.streak++;
-    r.weak = r.streak < 2;
-    r.due = now + 86400000;
-  }
+  const confidence = e.reflection?.confidence;
+  scheduleReview(state, q.id, !correct ? 'incorrect' : confidence === 'guessed' || confidence === 'uncertain' ? confidence : 'correct', s.id, now, correct);
   if (!correct && s.mode === "lesson" && !s.repeated.includes(q.id)) {
     s.repeated.push(q.id);
     s.entries.push({
@@ -328,6 +363,12 @@ export function finish(state, now = Date.now()) {
     s.entries.forEach((e, i) =>
       record(state, s, e, i, Math.min(now, s.deadline)),
     );
+  // An unanswered test item is not an attempt, but it still needs retrieval.
+  // Do not rewrite history or change denominators for earlier sessions.
+  if (s.mode === 'timed') s.entries.forEach(e => {
+    if (!e.selected && !e.attemptId)
+      scheduleReview(state, e.questionId, 'skipped', s.id, now);
+  });
   s.finished = now;
 }
 export function advance(state, now = Date.now()) {
@@ -375,12 +416,13 @@ export function result(state, s) {
   };
 }
 export function restoreBackup(value) {
-  if (!recordObject(value) || value.version !== 1 ||
+  if (!recordObject(value) || ![1,2].includes(value.version) ||
       !Array.isArray(value.questions) || !Array.isArray(value.attempts) ||
       !Array.isArray(value.sessions) || !Array.isArray(value.bookmarks) ||
       !recordObject(value.reviews) || (value.active!==null&&!str(value.active)))
     throw Error("Invalid backup.");
-  const errors=validateBank(value);
+  // The question-bank format remains v1; personal progress has its own version.
+  const errors=validateBank({version:1,questions:value.questions});
   if(errors.length)throw Error(errors.join("\n"));
   const questions=new Map(value.questions.map(q=>[q.id,q]));
   const attempts=new Map();
@@ -433,5 +475,6 @@ export function restoreBackup(value) {
   for(const [id,review]of Object.entries(value.reviews))
     if(!questions.has(id)||!recordObject(review)||typeof review.weak!=='boolean'||
        !Number.isFinite(review.due)||!Number.isInteger(review.streak)||review.streak<0)throw Error('Invalid review schedule.');
-  return structuredClone(value);
+  return {...structuredClone(value),version:2};
 }
+

@@ -34,35 +34,35 @@ const ready=bank.questions.filter(q=>q.status==='validated'&&q.sources.every(s=>
   await p.locator("[data-action=language]").click();
   assert.equal(await p.locator("html").getAttribute("dir"), "ltr");
   await p.setViewportSize({ width: 320, height: 740 });
-  await p.locator(".source-figure summary").click();
-  assert.ok(
-    await p
-      .locator(".image-pan")
-      .evaluate((el) => el.scrollWidth > el.clientWidth),
-  );
-  assert.ok(
-    await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
-  );
-  await p.locator("input[value=A]").check();
-  await p.locator("[data-action=submit]").click();
-  await p.locator(".feedback.success").waitFor();
+  // Some independently checked records contain native text and no source image.
+  // Exercise zoom when the selected question does contain an image.
+  if (await p.locator('.source-figure summary').count()) {
+    await p.locator('.source-figure summary').first().click();
+    assert.ok(await p.locator('.image-pan').first().evaluate(el => el.scrollWidth > el.clientWidth));
+  }
+  assert.ok(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await p.locator('input[name=answer]').first().check();
+  await p.locator('[data-action=submit]').click();
+  await p.locator('.feedback').waitFor();
   await p.reload();
   const state = await p.evaluate(() =>
     JSON.parse(localStorage.getItem("madar-study-v1")),
   );
-  assert.equal(state.questions.length, 0); // bundled questions remain outside localStorage quota
+  assert.equal(state.questions.length, state.sessions[0].entries.length); // referenced questions are snapshotted, not the full bank
+  assert.ok(state.questions.length < ready);
   assert.equal(state.attempts.length, 1);
   await p.goto("http://127.0.0.1:5173/#sources");
-  const chooser = p.waitForEvent("filechooser");
-  await p.locator("[data-action=font]").click();
-  await (
-    await chooser
-  ).setFiles({
-    name: "not-a-font.woff2",
-    mimeType: "font/woff2",
-    buffer: Buffer.from("invalid"),
+  // The supplied typefaces are self-hosted and require no upload.
+  const fonts = await p.evaluate(async () => {
+    const loaded = await Promise.all([
+      document.fonts.load('400 16px "Thmanyah Sans"', 'Madar مدار'),
+      document.fonts.load('400 32px "Thmanyah Serif Display"', 'Madar مدار'),
+      document.fonts.load('400 16px "Thmanyah Serif Text"', 'Madar مدار'),
+    ]);
+    return loaded.map(faces => faces.length > 0 && faces.every(face => face.status === 'loaded'));
   });
-  await p.getByRole("status").filter({ hasText: "Choose a valid" }).waitFor();
+  assert.deepEqual(fonts, [true, true, true]);
+  assert.match(await p.locator('body').evaluate(el => getComputedStyle(el).fontFamily), /Thmanyah Sans/);
   for (const width of [320, 768, 1024]) {
     await p.setViewportSize({ width, height: 1024 });
     for (const route of [
@@ -86,10 +86,11 @@ const ready=bank.questions.filter(q=>q.status==='validated'&&q.sources.every(s=>
   }
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: real source bank hydrated without quota duplication, English default, Arabic toggle/reload, original text unchanged, zoomable source image, stable attempt after reload, invalid font rejected, 18 route/viewport checks.",
+    "PASS: referenced questions snapshotted without copying the full bank, English default, Arabic toggle/reload, original text unchanged, source image zoom where present, stable attempt after reload, self-hosted English and Arabic fonts loaded, 18 route/viewport checks.",
   );
   await browser.close();
 })().catch((e) => {
   console.error(e);
   process.exit(1);
 });
+

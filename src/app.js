@@ -1,11 +1,12 @@
-import {hydrate,personalData,studyDraft} from "./persistence.js";
+import {dailyPlan, allocatePractice, allocateMock, MOCK_2027, BLUEPRINT_2027_SOURCE, BLUEPRINT_2027_CHECKED} from "./planning.js";
+import {hasVerifiedSourceExplanation} from "./verified-solutions.js";
+import {hydrate,personalData,studyDraft,saveHydrated} from "./persistence.js";
 import {
   applyLanguage,
   translate,
   getLanguage,
   toggleLanguage,
 } from "./i18n.js";
-import { loadPersonalFont, choosePersonalFont } from "./personal-font.js";
 import "./style.css";
 import {
   TOPICS,
@@ -22,6 +23,7 @@ import {
   toggleBookmark,
   metrics,
   result,
+  setReflection,
 } from "./model.js";
 const KEY = "madar-study-v1";
 let state = fresh(),
@@ -30,6 +32,7 @@ let state = fresh(),
   notice = "";
 let bundledBank={version:1,questions:[],reviewQueue:[],coverage:[]};
 let documentViews={};let libraryPage=0;let libraryTopic='all';let libraryStatus='all';
+let practiceDraft={topic:'all', count:10, mode:'practice', minutes:30};
 let year = "",
   route = location.hash.slice(1) || "study";
 try {
@@ -87,11 +90,15 @@ const progress = (m) =>
   `<div class="bar"><span style="width:${m.total ? (m.attempted / m.total) * 100 : 0}%"></span></div>`;
 function stats(ids = qs().map((q) => q.id)) {
   const m = metrics(state, ids);
-  return `<div class="stats"><article><small>Questions attempted</small><strong>${m.attempted}<em> / ${m.total}</em></strong></article><article><small>First-attempt accuracy</small><strong>${pct(m.firstCorrect, m.attempted)}</strong><span>${m.firstCorrect} correct out of ${m.attempted}</span></article><article><small>Repeat-attempt accuracy</small><strong>${pct(m.repeatCorrect, m.repeatCount)}</strong><span>${m.repeatCorrect} correct out of ${m.repeatCount}</span></article></div>`;
+  const delayed = state.attempts.filter(a => ids.includes(a.questionId) && a.delayed === true);
+  return `<div class="stats"><article><small>Questions attempted</small><strong>${m.attempted}<em> / ${m.total}</em></strong></article><article><small>First-attempt accuracy</small><strong>${pct(m.firstCorrect, m.attempted)}</strong><span>${m.firstCorrect} correct out of ${m.attempted}</span></article><article><small>Repeat-attempt accuracy</small><strong>${pct(m.repeatCorrect, m.repeatCount)}</strong><span>${m.repeatCorrect} correct out of ${m.repeatCount}</span></article><article><small>Delayed-retention accuracy</small><strong>${pct(delayed.filter(a => a.correct).length, delayed.length)}</strong><span>${delayed.length} due reviews${delayed.length < 10 ? " · small sample" : ""}</span></article></div>`;
 }
 function study() {
   const active = state.sessions.find((s) => !s.finished);
-  return `<section class="hero"><div><div class="eyebrow">YOUR NEXT CHAPTER</div><h1>A little progress today.<br><span>A deeper understanding tomorrow.</span></h1><p>Your quiet space to prepare for <bdi>CFA Level I</bdi>.<br>Learn from your sources. Revisit what needs attention.</p>${active ? btn("Resume your session →", "resume", "button light") : btn("Start studying →", "topic", "button light", `data-topic="Fixed Income"`)}</div><div class="orb" aria-hidden="true"><div>I<small>CFA LEVEL</small></div></div></section>${stats()}<div class="section-head"><div><span class="eyebrow">THE CURRICULUM</span><h2>Your study path</h2></div><span class="muted">10 topics · coverage follows your sources</span></div><div class="topics">${TOPICS.map(
+  const plan = dailyPlan(qs(), state.attempts, state.reviews, state.plan);
+  const ar = getLanguage() === "ar";
+  const tr = (en, arabic) => ar ? arabic : en;
+  return `<section class="hero"><div><div class="eyebrow">YOUR NEXT CHAPTER</div><h1>A little progress today.<br><span>A deeper understanding tomorrow.</span></h1><p>Your quiet space to prepare for <bdi>CFA Level I</bdi>.<br>Learn from your sources. Revisit what needs attention.</p>${active ? btn("Resume your session →", "resume", "button light") : plan.due.length ? btn(`Review ${plan.due.length} due →`, "review-start", "button light", `data-mode="weak"`) : plan.next ? btn("Open your next module →", "topic", "button light", `data-topic="${esc(plan.next.topic)}"`) : btn("Browse sources →", "sources", "button light")}</div><div class="orb" aria-hidden="true"><div>I<small>CFA LEVEL</small></div></div></section><section class="panel" dir="${ar ? 'rtl' : 'ltr'}"><span class="eyebrow">${tr("TODAY'S SEQUENCE", "خطة اليوم")}</span><h2>${tr(`A plan for ${plan.minutes} minutes`, `خطة لمدة ${plan.minutes} دقيقة`)}</h2><p>${plan.examDate ? `${tr('Exam:', 'الاختبار:')} ${esc(plan.examDate)} ${plan.days >= 0 ? `· ${plan.days} ${tr('days remaining', 'يومًا متبقيًا')}` : `· ${tr('date has passed', 'مضى الموعد')}`}` : tr('Set your exam date and available time below.', 'حدد موعد الاختبار والوقت المتاح أدناه.')}</p>${plan.paceGap > 0 ? `<p>${tr(`At ${plan.practiceCount} questions per day, at least ${plan.paceGap} currently unseen questions would remain by the exam date, even if every practice question were new.`, `بمعدل ${plan.practiceCount} أسئلة يوميًا، سيبقى ${plan.paceGap} سؤالًا غير مجاب عنه على الأقل بحلول الاختبار، حتى لو كانت كل أسئلة التدريب جديدة.`)}</p>` : ''}<ol><li>${plan.due.length} ${tr('reviews due', 'مراجعات مستحقة')} ${plan.due.length && !active ? btn(tr('Review due', 'راجع المستحق'), 'review-start', 'secondary', 'data-mode="weak"') : ''}</li><li>${plan.next ? `${tr('Next module:', 'الوحدة التالية:')} <strong dir="ltr">${esc(plan.next.module)}</strong> (${esc(plan.next.topic)}; ${plan.next.attempted}/${plan.next.total} ${tr('questions attempted', 'أسئلة أُجيب عنها')}). ${tr('Chosen for the lowest available-question coverage; review needs break ties.', 'اختيرت لأقل تغطية للأسئلة المتاحة، وتُستخدم الحاجة للمراجعة عند التساوي.')}` : tr('No verified source modules available for this year.', 'لا توجد وحدات موثقة متاحة لهذه السنة.')}</li><li>${tr('Targeted practice: about', 'تدريب موجّه: نحو')} ${plan.practiceCount} ${tr('questions', 'أسئلة')} ${plan.next && !active ? btn(tr('Practice this topic', 'تدرّب على الموضوع'), 'daily-practice', 'secondary', `data-topic="${esc(plan.next.topic)}" data-count="${plan.practiceCount}"`) : ''}</li><li>${tr('Review errors and add a brief note.', 'راجع الأخطاء وأضف ملاحظة قصيرة.')}</li><li>${tr('Return for scheduled revisits.', 'عُد للمراجعات المجدولة.')}</li></ol><p class="footnote">${tr('Coverage measures attempted questions, not mastery. Module mapping follows the available source records; learning-outcome coverage is not yet verified.', 'تقيس التغطية الأسئلة التي أُجيب عنها ولا تعني الإتقان. تتبع الوحدات سجلات المصادر المتاحة؛ ولم تُتحقق تغطية مخرجات التعلم بعد.')}</p><details><summary>${tr('Adjust study plan', 'تعديل خطة الدراسة')}</summary><form id="plan-form" class="form-grid"><label>${tr('Exam date', 'موعد الاختبار')} <input type="date" name="examDate" value="${esc(state.plan?.examDate || '')}"></label><label>${tr('Minutes available per day', 'الدقائق المتاحة يوميًا')} <input type="number" name="minutes" min="10" max="480" value="${plan.minutes}" required></label><button class="button">${tr('Save plan', 'حفظ الخطة')}</button></form></details></section>${stats()}<div class="section-head"><div><span class="eyebrow">THE CURRICULUM</span><h2>Your study path</h2></div><span class="muted">10 topics · coverage follows your sources</span></div><div class="topics">${TOPICS.map(
     (t, i) => {
       const group = qs().filter((q) => q.topic === t),
         m = metrics(
@@ -164,7 +171,10 @@ function provenance(q) {
   return `<details class="provenance"><summary>Source and verification</summary><div dir="ltr" data-original>${q.sources.map((s) => `<p><b>${esc(s.title)}</b><br>${esc(s.category)} · ${esc(s.edition)} · ${esc(s.year)}<br>Question: ${esc(s.location)}<br>Answer: ${esc(s.answerLocation)}</p>`).join("")}<small>Verified by: ${esc(q.verifiedBy)}</small></div></details>`;
 }
 function feedback(q, selected) {
-  return `<div class="feedback ${selected === q.correctOptionId ? "success" : "error"}" role="status"><b>${selected === q.correctOptionId ? "Correct answer" : "Incorrect answer"}</b><p dir="ltr">Correct answer: ${q.presentation==='source'?esc(q.correctOptionId):esc(q.options.find((o) => o.id === q.correctOptionId).text)}</p></div><section class="explanation"><h3>Source explanation</h3><div dir="ltr" data-original>${q.presentation==='source'&&q.explanationMaterials?.length?q.explanationMaterials.map(m=>sourceDocument(m)).join(''):q.explanation ? esc(q.explanation) : '<span class="muted">No source explanation is available for this record.</span>'}</div></section>`;
+  const skipped = !selected;
+  const option = q.options.find(o => o.id === q.correctOptionId);
+  const verified = hasVerifiedSourceExplanation(q);
+  return `<div class="feedback ${skipped ? "" : selected === q.correctOptionId ? "success" : "error"}" role="status"><b>${skipped ? "Skipped" : selected === q.correctOptionId ? "Correct answer" : "Incorrect answer"}</b><p dir="ltr">Correct answer: ${esc(q.correctOptionId)}${option ? `. ${esc(option.text)}` : ''}</p></div><section class="explanation"><h3>Source explanation</h3>${verified ? `<div dir="ltr" data-original>${esc(q.explanation)}</div>` : '<p>Shared solution pages are withheld until the explanation for this question can be verified without revealing other answers.</p>'}</section>`;
 }
 function session() {
   const s = activeSession(state);
@@ -177,27 +187,25 @@ function session() {
   const e = s.entries[s.index],
     q = state.questions.find((q) => q.id === e.questionId),
     revealed = !!e.attemptId && s.mode !== "timed";
-  return `<div class="session-top">${btn("Save and exit", "study", "text-button")}<span>${esc(s.label)}</span>${s.deadline ? '<b id="timer" class="timer"></b>' : `<span dir="ltr">${s.index + 1} / ${s.entries.length}</span>`}</div><div class="bar"><span style="width:${(s.index / s.entries.length) * 100}%"></span></div><article class="question"><div class="section-head"><span class="eyebrow">${s.index >= s.initialCount ? "Reviewing a previous mistake" : "QUESTION " + (s.index + 1)}</span>${btn(state.bookmarks.includes(q.id) ? "★ Saved" : "☆ Save", "bookmark", "text-button", `data-id="${esc(q.id)}" aria-pressed="${state.bookmarks.includes(q.id)}"`)}</div><small class="muted" dir="ltr">${esc(q.topic)} / ${esc(q.module)}</small><div dir="ltr" class="question-text" data-original>${q.materials.map(material).join("")}<h2>${q.presentation==='source'?`Answer source question ${q.conversion.candidateId.split('-q').pop()}`:esc(q.text)}</h2><fieldset aria-label="Answer options" ${revealed ? "disabled" : ""}>${e.order
+  return `<div class="session-top">${btn("Save and exit", "study", "text-button")}<span>${esc(s.label)}</span>${s.deadline ? '<b id="timer" class="timer"></b>' : `<span dir="ltr">${s.index + 1} / ${s.entries.length}</span>`}</div><div class="bar"><span style="width:${(s.index / s.entries.length) * 100}%"></span></div><article class="question"><div class="section-head"><span class="eyebrow">${s.index >= s.initialCount ? "Reviewing a previous mistake" : "QUESTION " + (s.index + 1)}</span>${btn(state.bookmarks.includes(q.id) ? "★ Saved" : "☆ Save", "bookmark", "text-button", `data-id="${esc(q.id)}" aria-pressed="${state.bookmarks.includes(q.id)}"`)}</div><small class="muted" dir="ltr">${esc(q.topic)} / ${esc(q.module)}</small><div dir="ltr" class="question-text" data-original><h2>${esc(q.text)}</h2>${q.presentation==='source'?'<p class="footnote">Searchable transcription; compare with the original source below. Layout and wording may need verification.</p>':''}${q.presentation !== 'source' ? q.materials.map(material).join("") : ""}<fieldset aria-label="Answer options" ${revealed ? "disabled" : ""}>${e.order
     .map((id, i) => {
       const o = q.options.find((o) => o.id === id);
-      return `<label class="option ${e.selected === id ? "selected" : ""} ${revealed && id === q.correctOptionId ? "correct" : ""} ${revealed && e.selected === id && id !== q.correctOptionId ? "incorrect" : ""}"><input type="radio" name="answer" value="${esc(id)}" ${e.selected === id ? "checked" : ""}><span class="letter">${String.fromCharCode(65 + i)}</span><span>${q.presentation==='source'?`Option ${esc(o.id)} on the original page`:esc(o.text)}</span>${revealed && id === q.correctOptionId ? '<b aria-label="Correct">✓</b>' : ""}</label>`;
+      return `<label class="option ${e.selected === id ? "selected" : ""} ${revealed && id === q.correctOptionId ? "correct" : ""} ${revealed && e.selected === id && id !== q.correctOptionId ? "incorrect" : ""}"><input type="radio" name="answer" value="${esc(id)}" ${e.selected === id ? "checked" : ""}><span class="letter">${esc(o.id)}</span><span>${esc(o.text)}</span>${revealed && id === q.correctOptionId ? '<b aria-label="Correct">✓</b>' : ""}</label>`;
     })
     .join(
       "",
-    )}</fieldset></div>${revealed ? feedback(q, e.selected) : ""}${provenance(q)}<div class="question-actions">${s.mode === "timed" ? `${btn("Previous", "previous", "secondary", s.index === 0 ? "disabled" : "")}${btn(s.index === s.entries.length - 1 ? "Finish test" : "Next / skip", "next")}` : revealed ? btn(s.index === s.entries.length - 1 ? "Finish session" : "Continue →", "next") : btn("Submit answer", "submit", "button", e.selected ? "" : "disabled")}</div>${s.mode === "timed" ? '<p class="footnote">Answers stay hidden until the test ends. The timer continues when you leave.</p>' : btn("End session early", "end", "text-button")}</article>`;
+    )}</fieldset>${q.presentation === 'source' ? q.materials.map(material).join("") : ""}</div>${s.mode !== "timed" ? `<div class="panel"><label>Confidence <select id="confidence" ${revealed ? "disabled" : ""}><option value="" ${!e.reflection?.confidence?'selected':''}>Not specified</option><option value="sure" ${e.reflection?.confidence==='sure'?'selected':''}>Sure</option><option value="uncertain" ${e.reflection?.confidence==='uncertain'?'selected':''}>Uncertain</option><option value="guessed" ${e.reflection?.confidence==='guessed'?'selected':''}>Guessed</option></select></label><label>Error label <input id="error-label" maxlength="80" value="${esc(e.reflection?.errorLabel || '')}" placeholder="Optional concept or error type"></label><label>Personal note <textarea id="error-note" maxlength="500">${esc(e.reflection?.note || '')}</textarea></label></div>` : ""}${revealed ? feedback(q, e.selected) : ""}${provenance(q)}<div class="question-actions">${s.mode === "timed" ? `${btn("Previous", "previous", "secondary", s.index === 0 ? "disabled" : "")}${btn(s.index === s.entries.length - 1 ? "Finish test" : "Next / skip", "next")}` : revealed ? btn(s.index === s.entries.length - 1 ? "Finish session" : "Continue →", "next") : btn("Submit answer", "submit", "button", e.selected ? "" : "disabled")}</div>${s.mode === "timed" ? '<p class="footnote">Answers stay hidden until the test ends. The timer continues when you leave.</p>' : btn("End session early", "end", "text-button")}</article>`;
 }
 function questionLabel(q) {
-  return q.presentation === 'source'
-    ? `${translate('Source question')} ${q.conversion.candidateId.split('-q').pop()} · ${q.module}`
-    : q.text;
+  return q.text;
 }
 function results(s) {
   const r = result(state, s);
   const conceal = timedTestInProgress();
-  return `<div class="page-heading"><span class="eyebrow">SESSION COMPLETE</span><h1>Every attempt builds understanding.</h1><p>${esc(s.label)}</p></div><div class="result-card"><span class="eyebrow">${s.mode === "timed" ? "Score across the full test" : "Accuracy of recorded answers"}</span><strong>${pct(r.correct, s.mode === "timed" ? r.total : r.answered)}</strong><p>${r.correct} correct · ${r.answered} answered · ${r.unanswered} unanswered</p><small>Unanswered questions are excluded from attempt accuracy, but included in the test-score denominator.</small></div><div class="question-actions">${btn("Back to study", "study")}${btn("Review weak questions", "weak", "secondary")}</div>${s.entries
+  return `<div class="page-heading"><span class="eyebrow">SESSION COMPLETE</span><h1>Every attempt builds understanding.</h1><p>${esc(s.label)}</p></div><div class="result-card"><span class="eyebrow">${s.mode === "timed" ? "Score across the full test" : "Accuracy of recorded answers"}</span><strong>${pct(r.correct, s.mode === "timed" ? r.total : r.answered)}</strong><p>${r.correct} / ${s.mode === "timed" ? r.total : r.answered} correct · ${r.unanswered} unanswered</p><small>Scores are calculated from saved entries; historical attempts are unchanged. Accuracy among answered questions: ${pct(r.correct, r.answered)} (${r.correct}/${r.answered}). Unanswered questions are included in the full-test score.</small></div><div class="question-actions">${btn("Back to study", "study")}${btn("Open review queue", "weak", "secondary")}</div>${s.entries
     .map((e, i) => {
       const q = state.questions.find((q) => q.id === e.questionId);
-      return `<details class="review-item"><summary><span>${i + 1}. ${esc(questionLabel(q))}</span><b>${conceal ? "" : e.selected ? (e.selected === q.correctOptionId ? "✓" : "×") : "—"}</b></summary><div dir="ltr">${q.materials.map(material).join("")}${conceal ? "" : q.options.map((o) => `<p>${o.id === q.correctOptionId ? "✓ " : ""}${q.presentation==='source'?esc(o.id):esc(o.text)}</p>`).join("")}</div>${conceal ? "<p>Answers are hidden while a timed test is active.</p>" : e.selected ? feedback(q, e.selected) : "<p>No answer recorded.</p>"}${btn(state.bookmarks.includes(q.id) ? "★ Saved" : "☆ Save", "bookmark", "text-button", `data-id="${esc(q.id)}"`)}${provenance(q)}</details>`;
+      return `<details class="review-item"><summary><span>${i + 1}. ${esc(questionLabel(q))}</span><b>${conceal ? "" : e.selected ? (e.selected === q.correctOptionId ? "✓" : "×") : "—"}</b></summary><div dir="ltr">${q.presentation === "source" ? '<p class="footnote">Searchable transcription; compare with the original source. Layout and wording may need verification.</p>' : ""}${q.materials.map(material).join("")}${conceal ? "" : q.options.map((o) => `<p>${o.id === q.correctOptionId ? "✓ " : ""}${esc(o.id)}. ${esc(o.text)}</p>`).join("")}</div>${conceal ? "<p>Answers are hidden while a timed test is active.</p>" : feedback(q, e.selected)}<label>Personal note <textarea class="result-note" data-entry-index="${i}" maxlength="500">${esc(e.reflection?.note || '')}</textarea></label><label>Error label <input class="result-label" data-entry-index="${i}" maxlength="80" value="${esc(e.reflection?.errorLabel || '')}"></label>${btn(state.bookmarks.includes(q.id) ? "★ Saved" : "☆ Save", "bookmark", "text-button", `data-id="${esc(q.id)}"`)}${provenance(q)}</details>`;
     })
     .join("")}`;
 }
@@ -208,19 +216,19 @@ function review(mode) {
         : state.reviews[q.id]?.weak,
     ),
     due = group.filter((q) => state.reviews[q.id]?.due <= Date.now());
-  return `<div class="page-heading"><span class="eyebrow">FOCUSED REVIEW</span><h1>${mode === "saved" ? "Your saved questions" : "Room to improve"}</h1><p>${mode === "saved" ? "Return to questions worth another look." : "Wrong answers stay in review until two successful due reviews, at least a day apart."}</p></div>${group.length ? `${btn(mode === "saved" ? "Review saved questions" : `Review due now (${due.length})`, "review-start", "button", `data-mode="${mode}" ${mode === "weak" && !due.length ? "disabled" : ""}`)}<div class="review-list">${group.map((q) => `<article class="review-item"><h3 dir="ltr">${esc(q.text)}</h3><small dir="ltr">${esc(q.module)}</small><p>${mode === "weak" ? `Next review: ${new Date(state.reviews[q.id].due).toLocaleString(getLanguage() === "ar" ? "ar-SA" : "en-GB")}` : ""}</p>${btn(state.bookmarks.includes(q.id) ? "★ Remove bookmark" : "☆ Save", "bookmark", "text-button", `data-id="${esc(q.id)}"`)}${provenance(q)}</article>`).join("")}</div>` : empty(mode === "saved" ? "No saved questions yet" : "No weak questions right now", mode === "saved" ? "Use the star while studying to save a question." : "Questions you answer incorrectly appear here. No recorded mistakes does not imply mastery.")}`;
+  return `<div class="page-heading"><span class="eyebrow">FOCUSED REVIEW</span><h1>${mode === "saved" ? "Your saved questions" : "Review queue"}</h1><p>${mode === "saved" ? "Return to questions worth another look." : "Incorrect, skipped, uncertain and guessed answers enter review. Due reviews continue on increasing intervals; same-session retries do not advance the schedule."}</p></div>${group.length ? `${btn(mode === "saved" ? "Review saved questions" : `Review due now (${due.length})`, "review-start", "button", `data-mode="${mode}" ${mode === "weak" && !due.length ? "disabled" : ""}`)}<div class="review-list">${group.map((q) => `<article class="review-item"><h3 dir="ltr">${esc(q.text)}</h3><small dir="ltr">${esc(q.module)}</small><p>${mode === "weak" ? `Reason: ${esc(state.reviews[q.id].reason || "previous review")} · Next review: ${new Date(state.reviews[q.id].due).toLocaleString(getLanguage() === "ar" ? "ar-SA" : "en-GB")}` : ""}</p>${btn(state.bookmarks.includes(q.id) ? "★ Remove bookmark" : "☆ Save", "bookmark", "text-button", `data-id="${esc(q.id)}"`)}${provenance(q)}</article>`).join("")}</div>` : empty(mode === "saved" ? "No saved questions yet" : "No scheduled reviews yet", mode === "saved" ? "Use the star while studying to save a question." : "Due and scheduled reviews appear here. No recorded mistakes does not imply mastery.")}`;
 }
 function tests() {
-  return `<div class="page-heading"><span class="eyebrow">PRACTICE WITH PURPOSE</span><h1>Practice at your pace.</h1><p>Topic practice or a timed test from your verified source questions.</p></div><form id="practice-form" class="panel"><label>Topic<select name="topic"><option value="all">All available topics</option>${TOPICS.map((t) => `<option>${esc(t)}</option>`).join("")}</select></label><div class="form-grid"><label>Question count<input name="count" type="number" min="1" max="180" value="10" required></label><label>Session mode<select name="mode"><option value="practice">Practice with immediate feedback</option><option value="timed">Timed test</option></select></label><label>Test duration in minutes<input name="minutes" type="number" min="1" max="240" value="30" required></label></div><p class="muted">When fewer questions are available, the session uses the available count.</p><button class="button" ${qs().length ? "" : "disabled"}>Start session →</button>${!qs().length ? "<p>Import verified questions before starting practice.</p>" : ""}</form>`;
+  return `<div class="page-heading"><span class="eyebrow">PRACTICE WITH PURPOSE</span><h1>Practice at your pace.</h1><p>Topic practice or a timed test from your verified source questions.</p></div><form id="practice-form" class="panel"><label>Topic<select name="topic"><option value="all" ${practiceDraft.topic === "all" ? "selected" : ""}>All available topics</option>${TOPICS.map((t) => `<option ${practiceDraft.topic === t ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></label><div class="form-grid"><label>Question count<input name="count" type="number" min="1" max="180" value="${esc(practiceDraft.count)}" required></label><label>Session mode<select name="mode"><option value="practice" ${practiceDraft.mode === "practice" ? "selected" : ""}>Practice with immediate feedback</option><option value="timed" ${practiceDraft.mode === "timed" ? "selected" : ""}>Timed test</option></select></label><label>Test duration in minutes<input name="minutes" type="number" min="1" max="240" value="${esc(practiceDraft.minutes)}" required></label></div><p class="muted">Questions with fewer previous attempts are selected first. All-topic practice rotates evenly across available topics; it is not an official exam-weighted mock. When fewer questions are available, the session uses the available count.</p><button class="button" ${qs().length ? "" : "disabled"}>Start session →</button>${!qs().length ? "<p>Import verified questions before starting practice.</p>" : ""}</form><form id="mock-form" class="panel"><h2>2027 mock session</h2><p>Each session contains 90 fresh questions in 135 minutes. Allocation is one fixed choice within the published 2027 topic-weight ranges across the two sessions; it is not a passing-score prediction. Previously shown questions, including skipped items, and exact normalized stem-and-choice duplicates are excluded. Similar variants may remain undetected.</p><label>Session <select name="preset"><option value="session1">Session 1</option><option value="session2">Session 2</option></select></label><div class="form-grid">${Object.entries(MOCK_2027).map(([name, allocation]) => `<div><b>${name === 'session1' ? 'Session 1' : 'Session 2'}</b><ul>${Object.entries(allocation).map(([topic,count]) => `<li>${esc(topic)}: ${count}</li>`).join('')}</ul></div>`).join('')}</div><p>Source: <a href="${BLUEPRINT_2027_SOURCE}" target="_blank" rel="noopener noreferrer">CFA Institute Level I exam</a> · checked ${BLUEPRINT_2027_CHECKED}. A session starts only when every allocated topic has enough fresh source questions.</p><button class="button" ${year === '2027' ? '' : 'disabled'}>Prepare mock session →</button>${year !== '2027' ? '<p>Select 2027 as the source year to use this preset.</p>' : ''}</form>`;
 }
 function progressPage() {
-  return `<div class="page-heading"><span class="eyebrow">YOUR STUDY, IN NUMBERS</span><h1>Progress you can measure.</h1><p>First accuracy: correct first attempts ÷ distinct questions attempted. Repeats are counted separately.</p></div>${stats()}<div class="review-links">${btn("☆ Saved questions", "saved", "panel")}${btn("↻ Weak questions", "weak", "panel")}</div><h2>Session history</h2>${
+  return `<div class="page-heading"><span class="eyebrow">YOUR STUDY, IN NUMBERS</span><h1>Progress you can measure.</h1><p>First accuracy: correct first attempts ÷ distinct questions attempted. Repeats are counted separately.</p></div>${stats()}<p class="footnote">Percentages based on fewer than 10 questions are a limited signal. Delayed retention counts only attempts made in a later session when a review was due.</p><h2>Coverage by topic</h2><div class="review-list">${TOPICS.map(t => { const group=qs().filter(q=>q.topic===t); const m=metrics(state,group.map(q=>q.id)); return `<article class="review-item"><strong>${esc(t)}</strong><p>${m.attempted}/${m.total} questions attempted · first-attempt accuracy ${pct(m.firstCorrect,m.attempted)}${m.attempted<10 ? " · small sample" : ""}</p></article>`; }).join("")}</div><div class="review-links">${btn("☆ Saved questions", "saved", "panel")}${btn("↻ Review queue", "weak", "panel")}</div><h2>Session history</h2>${
     state.sessions
       .filter((s) => s.finished)
       .reverse()
       .map((s) => {
         const r = result(state, s);
-        return `<button class="history" data-action="history" data-id="${s.id}"><span>${esc(s.label)}<small>${new Date(s.finished).toLocaleString(getLanguage() === "ar" ? "ar-SA" : "en-GB")}</small></span><b>${r.correct} / ${r.answered} correct</b></button>`;
+        return `<button class="history" data-action="history" data-id="${s.id}"><span>${esc(s.label)}<small>${new Date(s.finished).toLocaleString(getLanguage() === "ar" ? "ar-SA" : "en-GB")}</small></span><b>${r.correct} / ${s.mode === "timed" ? r.total : r.answered} correct${s.mode === "timed" ? ` · ${pct(r.correct, r.total)} full-test score (calculated from saved entries)` : ""}</b></button>`;
       })
       .join("") ||
     '<p class="muted">Completed session results will appear here.</p>'
@@ -274,7 +282,7 @@ function sources() {
           })
           .join("")}</tbody></table></div>`
       : '<p class="muted">No extracted modules yet. Book counts do not establish question coverage.</p>'
-  }</div><div class="panel"><h2>Thmanyah font</h2><p>Load your licensed Thmanyah font file (WOFF2, WOFF or TTF). It stays in this browser. Until then, the interface uses the system font.</p>${btn("Load Thmanyah font", "font", "secondary")}</div><div class="panel"><h2>Protect your progress</h2><p>Stored in this browser only. Clearing site data removes progress. Export regular backups to move between devices.</p>${btn("Export questions and progress", "export", "secondary")}<label class="file-label">Restore a backup<input id="backup-file" type="file" accept=".json,application/json"></label><p class="footnote">Restore replaces this browser's study data after confirmation. Export your current backup first.</p></div>`;
+  }</div><div class="panel"><h2>Typography</h2><p>Thmanyah fonts load automatically with the application.</p></div><div class="panel"><h2>Protect your progress</h2><p>Stored in this browser only. Clearing site data removes progress. Export regular backups to move between devices.</p>${btn("Export questions and progress", "export", "secondary")}<label class="file-label">Restore a backup<input id="backup-file" type="file" accept=".json,application/json"></label><p class="footnote">Restore replaces this browser's study data after confirmation. Export your current backup first.</p></div>`;
 }
 function render() {
   if (startupError) {
@@ -301,18 +309,36 @@ function render() {
             )
             .join("")
         : "<option>Awaiting sources</option>"
-    }</select></label></header><main id="main">${storageError ? `<div class="alert">${esc(storageError)}${btn("Export raw data", "raw", "secondary")}</div>` : ""}${notice ? `<div class="alert" role="status">${esc(notice)}${btn("Close", "dismiss", "text-button")}</div>` : ""}${route.startsWith("topic:") ? topic(decodeURIComponent(route.slice(6))) : ({ study, tests, progress: progressPage, saved: () => review("saved"), weak: () => review("weak"),
+    }</select></label></header><main id="main">${storageError ? `<div class="alert">${esc(storageError)}${btn("Export raw data", "raw", "secondary")}</div>` : ""}${state.pinnedQuestionIds?.length ? `<div class="alert" role="status">${state.pinnedQuestionIds.length} saved question versions are retained for history. Changed source content needs a new question revision ID.</div>` : ""}${state.legacyUnverifiedQuestionIds?.length ? `<div class="alert" role="status">Earlier question versions could not be verified for ${state.legacyUnverifiedQuestionIds.length} historical records. Restore a prior full backup if available; historical attempts have not been changed.</div>` : ""}${notice ? `<div class="alert" role="status">${esc(notice)}${btn("Close", "dismiss", "text-button")}</div>` : ""}${route.startsWith("topic:") ? topic(decodeURIComponent(route.slice(6))) : ({ study, tests, progress: progressPage, saved: () => review("saved"), weak: () => review("weak"),
         library, sources, session }[route] || study)()}</main><footer>Madar · Independent study from your personal sources</footer></div>`;
   applyLanguage(document.querySelector("#app"));
   checkSourceReadiness();
   tick();
 }
-function launch(ids, mode, label, minutes) {
-  commit((s) => startSession(s, ids, mode, label, Date.now(), minutes));
-  nav("session");
-  if (route === "session") render();
+let launching = false;
+async function launch(ids, mode, label, minutes) {
+  if (launching) return;
+  launching = true;
+  try {
+    if (mode === "timed") {
+      notice = "Preparing assessment pages before starting the clock…"; render();
+      const selected = ids.map(id => state.questions.find(q => q.id === id)).filter(Boolean);
+      const urls = [...new Set(selected.flatMap(q => q.materials.flatMap(m => m.type === 'document' ? m.pages.map(p => p.src) : m.type === 'image' ? [m.src] : [])))];
+      await Promise.all(urls.map(src => new Promise((resolve, reject) => {
+        const img = new Image();
+        const timer = setTimeout(() => reject(Error("A source page timed out. Check your connection and retry; the test has not started.")), 30000);
+        img.onload = () => { clearTimeout(timer); resolve(); };
+        img.onerror = () => { clearTimeout(timer); reject(Error("A source page could not load. Check your connection and retry; the test has not started.")); };
+        img.src = sourceImageUrl(src);
+      })));
+    }
+    notice = "";
+    commit((s) => startSession(s, ids, mode, label, Date.now(), minutes));
+    nav("session");
+    if (route === "session") render();
+  } finally { launching = false; }
 }
-document.addEventListener("click", (e) => {
+document.addEventListener("click", async (e) => {
   const b = e.target.closest("[data-action]");
   if (!b) return;
   try {
@@ -326,16 +352,12 @@ document.addEventListener("click", (e) => {
       render();
       return;
     }
-    if (a === "font") {
-      awaitFont();
-      return;
-    }
     if (["study", "tests", "sources", "saved", "weak", "progress", "library"].includes(a))
       nav(a);
     else if(a==='library-prev'||a==='library-next'){libraryPage+=a==='library-prev'?-1:1;render();window.scrollTo(0,0);}
     else if (a === "topic") nav("topic:" + encodeURIComponent(b.dataset.topic));
     else if (a === "lesson")
-      launch(
+      await launch(
         qs()
           .filter(
             (q) => q.topic === b.dataset.topic && q.module === b.dataset.module,
@@ -378,9 +400,11 @@ document.addEventListener("click", (e) => {
         commit((s) => finish(s));
         render();
       }
+    } else if (a === "daily-practice") {
+      await launch(allocatePractice(qs(), state.attempts, Number(b.dataset.count), b.dataset.topic), "practice", `Targeted practice: ${b.dataset.topic}`);
     } else if (a === "review-start") {
       const mode = b.dataset.mode;
-      launch(
+      await launch(
         qs()
           .filter((q) =>
             mode === "saved"
@@ -417,6 +441,16 @@ document.addEventListener("change", async (e) => {
       const key=e.target.dataset.viewKey;documentViews[key]=e.target.value;
       const option=e.target.selectedOptions[0];for(const image of e.target.closest('.source-document').querySelectorAll('img'))image.src=sourceImageUrl(option.dataset.src);
       checkSourceReadiness();return;
+    }
+    if (e.target.classList.contains("result-note") || e.target.classList.contains("result-label")) {
+      const index = Number(e.target.dataset.entryIndex), value = e.target.value;
+      commit(s => setReflection(s, e.target.classList.contains("result-note") ? {note:value} : {errorLabel:value}, index));
+      return;
+    }
+    if (["confidence", "error-label", "error-note"].includes(e.target.id)) {
+      const value = e.target.value;
+      commit((s) => { const current = activeSession(s).entries[activeSession(s).index].reflection || {}; setReflection(s, {...current, ...(e.target.id === "confidence" ? {confidence:value || null} : e.target.id === "error-label" ? {errorLabel:value} : {note:value})}); });
+      return;
     }
     if (e.target.name === "answer") {
       if(!sourceReady())throw Error("Wait for the original source page to load before selecting an answer.");
@@ -462,19 +496,28 @@ document.addEventListener("change", async (e) => {
     render();
   }
 });
-document.addEventListener("submit", (e) => {
-  if (e.target.id !== "practice-form") return;
+document.addEventListener("submit", async (e) => {
+  if (!["practice-form", "plan-form", "mock-form"].includes(e.target.id)) return;
   e.preventDefault();
   try {
     const f = new FormData(e.target);
-    const ids = qs()
-      .filter((q) => f.get("topic") === "all" || q.topic === f.get("topic"))
-      .map((q) => q.id);
-    for (let i = ids.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [ids[i], ids[j]] = [ids[j], ids[i]];
+    if (e.target.id === "mock-form") {
+      if (year !== '2027') throw Error('Select source year 2027 to use these mock presets.');
+      const preset = String(f.get('preset'));
+      const mock = allocateMock(qs(), state.sessions, preset, state.questions);
+      if (mock.shortages.length) throw Error('Not enough fresh questions to start: ' + mock.shortages.map(x => `${x.topic}: ${x.available}/${x.required}`).join('; ') + '. Previously seen questions and exact normalized stem-and-choice duplicates are excluded; similar variants may remain undetected.');
+      await launch(mock.ids, 'timed', preset === 'session1' ? '2027 mock session 1' : '2027 mock session 2', 135);
+      return;
     }
-    launch(
+    if (e.target.id === "plan-form") {
+      const minutes = Number(f.get("minutes"));
+      if (!Number.isFinite(minutes) || minutes < 10 || minutes > 480) throw Error("Enter a study time between 10 and 480 minutes.");
+      commit(s => { s.plan = {examDate:String(f.get("examDate") || ""), minutes}; });
+      render(); return;
+    }
+    practiceDraft = {topic:String(f.get("topic")), count:Number(f.get("count")), mode:String(f.get("mode")), minutes:Number(f.get("minutes"))};
+    const ids = allocatePractice(qs(), state.attempts, practiceDraft.count, practiceDraft.topic);
+    await launch(
       ids.slice(0, Number(f.get("count"))),
       f.get("mode"),
       f.get("mode") === "timed" ? "Timed test" : "Topic practice",
@@ -541,20 +584,13 @@ async function initialize(){
     if(!response.ok)throw Error('Question library request failed (HTTP '+response.status+').');
     bundledBank=await response.json();
   }
-  const raw=localStorage.getItem(KEY);state=hydrate(raw?JSON.parse(raw):null,bundledBank);
-  localStorage.setItem(KEY,JSON.stringify(personalData(state,bundledBank)));
+  const raw=localStorage.getItem(KEY);
+  const saved = raw ? JSON.parse(raw) : null;
+  state=hydrate(saved,bundledBank);
+  saveHydrated(localStorage, KEY, raw, state, bundledBank);
  }catch(error){startupError=error.message;storageError='Unable to load your source library. Original stored data was preserved: '+error.message;}
  render();
 }
-async function awaitFont() {
-  try {
-    await choosePersonalFont();
-    notice = "Personal font loaded on this browser.";
-  } catch (e) {
-    notice = e.message;
-  }
-  render();
-}
-loadPersonalFont();
+
 setInterval(tick, 1000);
 initialize();
