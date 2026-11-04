@@ -1,10 +1,10 @@
 {
-  "commit": "279a2692bd7e6210659e0d87136aa59b451cbd31",
+  "commit": "2ce77d7c57fedf432f3d9580c4a0d3c315136f60",
   "build": "success",
   "deploy": "success",
   "siteUrl": "https://mohammedthe1.github.io/cfa-lvl1/",
   "publicVerified": true,
-  "runUrl": "https://github.com/MohammedThe1/cfa-lvl1/actions/runs/40843081670",
+  "runUrl": "https://github.com/MohammedThe1/cfa-lvl1/actions/runs/41780778160",
   "readyQuestions": 1420,
   "bankSha256": "ca6396e0761b4d43a43b1f2f36efc210409e23a3ed7f8447487119ff49576f8e",
   "verifiedImage": "question-assets/a26bb009cb63-p61.webp",
